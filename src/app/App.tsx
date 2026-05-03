@@ -1,21 +1,24 @@
 import { useState } from 'react';
 import { Toaster } from 'sonner';
-import { Bell, LayoutDashboard, Menu, Plus, RotateCcw, ScanLine, Search, Users, X } from 'lucide-react';
+import { Bell, LayoutDashboard, Menu, Plus, RotateCcw, ScanLine, Search, UserCog, Users, X } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { ItemLookup } from './components/ItemLookup';
 import { UserLookup } from './components/UserLookup';
+import { UserManagement } from './components/UserManagement';
 import { AddItemFlow } from './components/AddItemFlow';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { ScanConsole } from './components/ScanConsole';
 import { NotificationCenter } from './components/NotificationCenter';
 import { useInventoryStore } from './useInventoryStore';
 
-type View = 'dashboard' | 'scan' | 'item-lookup' | 'user-lookup' | 'notifications';
+type View = 'dashboard' | 'scan' | 'item-lookup' | 'user-lookup' | 'user-management' | 'notifications';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAddItem, setShowAddItem] = useState(false);
+  /** Item ID to highlight when navigating from the dashboard overdue table. */
+  const [highlightItemId, setHighlightItemId] = useState<string | undefined>();
 
   const inventory = useInventoryStore();
   const unreadNotifications = inventory.notifications.filter(notification => !notification.read).length;
@@ -25,18 +28,26 @@ export default function App() {
     { id: 'scan' as const, label: 'Scan Console', icon: ScanLine },
     { id: 'item-lookup' as const, label: 'Items', icon: Search },
     { id: 'user-lookup' as const, label: 'Users', icon: Users },
+    { id: 'user-management' as const, label: 'Manage Users', icon: UserCog },
     { id: 'notifications' as const, label: 'Alerts', icon: Bell, badge: unreadNotifications },
   ];
 
-  const viewCopy = {
+  const viewCopy: Record<View, string> = {
     dashboard: 'Live system health and urgent inventory activity',
     scan: 'Barcode-first checkout, return, and damage logging',
     'item-lookup': 'Photo-backed records, quantity tools, and traceable history',
     'user-lookup': 'Current ownership, risk controls, and user status',
+    'user-management': 'Add / remove users manually or via QR code',
     notifications: 'Automated email/SMS placeholder nudges and admin alerts',
   };
 
   const goToScan = () => setCurrentView('scan');
+
+  /** Navigate to Item Lookup and pre-select a specific item (e.g. from dashboard overdue table). */
+  const handleNavigateToItem = (itemId: string) => {
+    setHighlightItemId(itemId);
+    setCurrentView('item-lookup');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -172,6 +183,7 @@ export default function App() {
             checkouts={inventory.checkouts}
             notifications={inventory.notifications}
             clock={inventory.clock}
+            onNavigateToItem={handleNavigateToItem}
           />
         )}
 
@@ -183,6 +195,7 @@ export default function App() {
             onCheckout={inventory.checkoutItems}
             onReturn={inventory.returnItems}
             onDamage={inventory.markDamage}
+            categoryLoanDays={inventory.categoryLoanDays}
           />
         )}
 
@@ -193,6 +206,8 @@ export default function App() {
             history={inventory.history}
             onSplit={inventory.splitItemQuantity}
             onMerge={inventory.mergeItemQuantity}
+            initialItemId={highlightItemId}
+            onClearHighlight={() => setHighlightItemId(undefined)}
           />
         )}
 
@@ -202,6 +217,14 @@ export default function App() {
             users={inventory.users}
             checkouts={inventory.checkouts}
             clock={inventory.clock}
+          />
+        )}
+
+        {currentView === 'user-management' && (
+          <UserManagement
+            users={inventory.users}
+            onAddUser={inventory.addUser}
+            onRemoveUser={inventory.removeUser}
           />
         )}
 
