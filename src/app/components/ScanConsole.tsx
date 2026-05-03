@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle, ClipboardCheck, PackageCheck, ScanLine, ShieldAlert, Trash2, Undo2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ClipboardCheck, PackageCheck, QrCode, ScanLine, ShieldAlert, Trash2, Undo2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { BarcodeScanner } from './BarcodeScanner';
-import { CheckoutRequest, DamageLevel, Item, ItemCondition, User } from './types';
+import { CheckoutRequest, DamageLevel, DueBasis, Item, ItemCondition, User } from './types';
 import { StatusBadge } from './StatusBadge';
 
 interface ScanConsoleProps {
@@ -12,6 +12,8 @@ interface ScanConsoleProps {
   onCheckout: (requests: CheckoutRequest[], userId: string) => void;
   onReturn: (itemId: string, quantity: number, condition: ItemCondition, notes?: string) => void;
   onDamage: (itemId: string, damageLevel: DamageLevel, quantity: number, notes?: string) => void;
+  /** Per-category default loan days (from store). */
+  categoryLoanDays?: Record<string, number>;
 }
 
 interface QueueEntry {
@@ -19,7 +21,14 @@ interface QueueEntry {
   quantity: number;
 }
 
-export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDamage }: ScanConsoleProps) {
+/** Basis options presented to the operator at checkout time. */
+const DUE_BASIS_OPTIONS: { value: DueBasis; label: string }[] = [
+  { value: 'per-category', label: 'Category default' },
+  { value: 'per-item', label: 'Item default' },
+  { value: 'custom', label: 'Custom days' },
+];
+
+export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDamage, categoryLoanDays = {} }: ScanConsoleProps) {
   const [mode, setMode] = useState<'checkout' | 'return' | 'damage'>('checkout');
   const [queue, setQueue] = useState<QueueEntry[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
@@ -27,11 +36,29 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
   const [damageLevel, setDamageLevel] = useState<DamageLevel>('minor');
   const [notes, setNotes] = useState('');
 
+  // Due-date configuration state (checkout mode)
+  const [dueBasis, setDueBasis] = useState<DueBasis>('per-category');
+  const [customDays, setCustomDays] = useState(3);
+
+  // QR-scan user lookup state
+  const [userQrInput, setUserQrInput] = useState('');
+
   const selectedUser = users.find(user => user.id === selectedUserId);
+
+  /** Estimated due date label shown in the Checkout Recipient panel. */
   const estimatedDueDate = useMemo(() => {
-    const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+    let days = 3;
+    if (dueBasis === 'custom') {
+      days = customDays;
+    } else if (dueBasis === 'per-category' && queue.length > 0) {
+      const first = queue[0].item;
+      days = categoryLoanDays[first.category] ?? 3;
+    } else if (dueBasis === 'per-item' && queue.length > 0) {
+      days = queue[0].item.defaultLoanDays ?? categoryLoanDays[queue[0].item.category] ?? 3;
+    }
+    const dueDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     return dueDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  }, [queue.length, selectedUserId]);
+  }, [queue, dueBasis, customDays, categoryLoanDays]);
 
   const handleScan = (barcode: string) => {
     const item = onScan(barcode);
@@ -67,6 +94,25 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
     toast.success(`${item.name} added to ${mode} queue`);
   };
 
+  /** QR code scan: look up user by scanned ID and auto-select them. */
+  const handleUserQrScan = (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = userQrInput.trim();
+    if (!id) return;
+    const found = users.find(u => u.id === id);
+    if (found) {
+      if (!found.active || found.restricted || !found.permissions.includes('checkout')) {
+        toast.error(`${found.name} cannot check out items`);
+      } else {
+        setSelectedUserId(found.id);
+        toast.success(`User selected via QR: ${found.name}`);
+      }
+    } else {
+      toast.error(`No user found for QR ID: ${id}`);
+    }
+    setUserQrInput('');
+  };
+
   const setQuantity = (itemId: string, quantity: number) => {
     setQueue(current => current.map(entry => {
       if (entry.item.id !== itemId) return entry;
@@ -92,7 +138,14 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
         toast.error('Select a user before checkout');
         return;
       }
-      onCheckout(queue.map(entry => ({ itemId: entry.item.id, quantity: entry.quantity })), selectedUserId);
+      // Pass per-request due overrides so the store can apply the correct duration.
+      const requests: CheckoutRequest[] = queue.map(entry => ({
+        itemId: entry.item.id,
+        quantity: entry.quantity,
+        dueBasis,
+        daysOverride: dueBasis === 'custom' ? customDays : undefined,
+      }));
+      onCheckout(requests, selectedUserId);
     }
 
     if (mode === 'return') {
@@ -146,7 +199,7 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
           </div>
 
           <div className="p-4 rounded-xl bg-gray-50 border border-gray-100 mb-5">
-            <BarcodeScanner onScan={handleScan} placeholder="Scan barcode or QR code..." />
+            <BarcodeScanner onScan={handleScan} placeholder="Scan item barcode or QR code..." />
           </div>
 
           <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -156,44 +209,139 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
         </div>
 
         {mode === 'checkout' && (
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-lg">Checkout Recipient</h3>
-              <span className="text-sm font-semibold px-3 py-1 rounded-lg bg-blue-50 text-blue-700">Estimated return: {estimatedDueDate}</span>
-            </div>
-            <div className="grid md:grid-cols-2 gap-3">
-              {users.map(user => {
-                const disabled = !user.active || user.restricted || !user.permissions.includes('checkout');
-                return (
-                  <button
-                    key={user.id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setSelectedUserId(user.id)}
-                    className={`text-left p-4 rounded-xl border-2 transition-all ${
-                      selectedUserId === user.id
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
-                    } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-gray-900">{user.name}</p>
-                        <p className="text-sm text-gray-600">{user.roles.join(' + ')}</p>
-                        <p className="text-xs text-gray-500 mt-1">{user.groups.join(', ')}</p>
-                      </div>
-                      {disabled && <AlertTriangle className="w-4 h-4 text-red-600" />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {selectedUser && (
-              <p className="text-sm text-blue-700 mt-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
-                {selectedUser.name} can check out {queue.reduce((sum, entry) => sum + entry.quantity, 0)} unit{queue.reduce((sum, entry) => sum + entry.quantity, 0) === 1 ? '' : 's'} due on {estimatedDueDate}.
+          <>
+            {/* Due-date configuration */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+              <h3 className="font-semibold text-lg mb-3">Due Timer</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Choose how the return deadline is calculated for this checkout batch.
               </p>
-            )}
-          </div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {DUE_BASIS_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setDueBasis(opt.value)}
+                    className={`px-4 py-2 rounded-xl border-2 font-medium text-sm transition-all ${
+                      dueBasis === opt.value
+                        ? 'border-blue-500 bg-blue-50 text-blue-800'
+                        : 'border-gray-200 hover:border-gray-300 text-gray-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              {dueBasis === 'custom' && (
+                <div className="flex items-center gap-3">
+                  <label className="text-sm font-medium text-gray-700">Loan days:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={customDays}
+                    onChange={e => setCustomDays(Math.max(1, Number(e.target.value)))}
+                    className="w-24 px-3 py-2 rounded-lg border border-gray-300 focus:border-blue-500 focus:outline-none"
+                  />
+                  <span className="text-sm text-gray-500">
+                    Due: {new Date(Date.now() + customDays * 24 * 60 * 60 * 1000).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </span>
+                </div>
+              )}
+
+              {dueBasis === 'per-category' && queue.length > 0 && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                  {queue.map(entry => {
+                    const days = categoryLoanDays[entry.item.category] ?? 3;
+                    return (
+                      <div key={entry.item.id} className="flex justify-between">
+                        <span className="truncate">{entry.item.name}</span>
+                        <span className="ml-4 shrink-0 font-medium">{days}d ({entry.item.category})</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {dueBasis === 'per-item' && queue.length > 0 && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                  {queue.map(entry => {
+                    const days = entry.item.defaultLoanDays ?? categoryLoanDays[entry.item.category] ?? 3;
+                    return (
+                      <div key={entry.item.id} className="flex justify-between">
+                        <span className="truncate">{entry.item.name}</span>
+                        <span className="ml-4 shrink-0 font-medium">{days}d{entry.item.defaultLoanDays ? ' (item override)' : ' (category fallback)'}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Checkout Recipient */}
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-lg">Checkout Recipient</h3>
+                <span className="text-sm font-semibold px-3 py-1 rounded-lg bg-blue-50 text-blue-700">
+                  Est. return: {estimatedDueDate}
+                </span>
+              </div>
+
+              {/* QR user scan */}
+              <form onSubmit={handleUserQrScan} className="flex gap-2 mb-4">
+                <div className="flex items-center gap-2 flex-1 px-4 py-2 border border-gray-300 rounded-xl focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-100">
+                  <QrCode className="w-4 h-4 text-gray-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={userQrInput}
+                    onChange={e => setUserQrInput(e.target.value)}
+                    placeholder="Scan user QR code ID..."
+                    className="flex-1 outline-none text-sm"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+                >
+                  Select
+                </button>
+              </form>
+
+              <div className="grid md:grid-cols-2 gap-3">
+                {users.map(user => {
+                  const disabled = !user.active || user.restricted || !user.permissions.includes('checkout');
+                  return (
+                    <button
+                      key={user.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setSelectedUserId(user.id)}
+                      className={`text-left p-4 rounded-xl border-2 transition-all ${
+                        selectedUserId === user.id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-gray-900">{user.name}</p>
+                          <p className="text-sm text-gray-600">{user.roles.join(' + ')}</p>
+                          <p className="text-xs text-gray-500 mt-1">{user.groups.join(', ')}</p>
+                        </div>
+                        {disabled && <AlertTriangle className="w-4 h-4 text-red-600" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedUser && (
+                <p className="text-sm text-blue-700 mt-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
+                  {selectedUser.name} can check out {queue.reduce((sum, entry) => sum + entry.quantity, 0)} unit{queue.reduce((sum, entry) => sum + entry.quantity, 0) === 1 ? '' : 's'} due on {estimatedDueDate}.
+                </p>
+              )}
+            </div>
+          </>
         )}
 
         {(mode === 'return' || mode === 'damage') && (

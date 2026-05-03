@@ -324,10 +324,24 @@ export const mockNotifications: InventoryNotification[] = [
   },
 ];
 
+/** Default loan days per category (overrides global default at checkout). */
+export const defaultCategoryLoanDays: Record<string, number> = {
+  Electronics: 7,
+  'Sports Equipment': 3,
+  Fitness: 1,
+  Weights: 1,
+  Audio: 5,
+  Photography: 3,
+  Office: 7,
+  Training: 3,
+  'IT Accessories': 5,
+};
+
 export const initialInventoryState: InventoryState = {
   items: mockItems,
   users: mockUsers,
   checkouts: mockCheckouts,
   history: mockHistory,
   notifications: mockNotifications,
+  categoryLoanDays: defaultCategoryLoanDays,
 };

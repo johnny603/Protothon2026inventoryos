@@ -9,10 +9,15 @@ export type NotificationChannel = 'email' | 'sms';
 export type NotificationTrigger = 'approaching-due' | 'overdue' | 'damaged' | 'unusable';
 export type NotificationPriority = 'low' | 'medium' | 'high' | 'critical';
 
+/** Basis used to compute the due date at checkout time. */
+export type DueBasis = 'per-item' | 'per-category' | 'custom';
+
 export interface User {
   id: string;
   name: string;
   email: string;
+  /** Optional phone number for notifications */
+  phone?: string;
   role: UserRole;
   roles: UserRole[];
   permissions: Permission[];
@@ -44,6 +49,8 @@ export interface Item {
   checkoutDate?: Date;
   lastSeenWith?: string;
   parentItemId?: string;
+  /** Per-item loan duration override (days). Overrides global default when set. */
+  defaultLoanDays?: number;
 }
 
 export interface HistoryEntry {
@@ -67,6 +74,8 @@ export interface Checkout {
   dueDate: Date;
   returnedDate?: Date;
   status: CheckoutStatus;
+  /** Basis used to compute dueDate (for display/audit purposes). */
+  dueBasis?: DueBasis;
 }
 
 export interface InventoryNotification {
@@ -88,9 +97,15 @@ export interface InventoryState {
   checkouts: Checkout[];
   history: HistoryEntry[];
   notifications: InventoryNotification[];
+  /** Per-category default loan days (e.g. { Electronics: 7, "Sports Equipment": 3 }). */
+  categoryLoanDays: Record<string, number>;
 }
 
 export interface CheckoutRequest {
   itemId: string;
   quantity: number;
+  /** Override loan duration in days for this specific request. */
+  daysOverride?: number;
+  /** Basis used to resolve dueDate. */
+  dueBasis?: DueBasis;
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GitMerge, GitPullRequest, History, Search, ShieldAlert } from 'lucide-react';
 import { HistoryEntry, Item, User } from './types';
 import { StatusBadge } from './StatusBadge';
@@ -10,12 +10,23 @@ interface ItemLookupProps {
   history: HistoryEntry[];
   onSplit: (itemId: string, quantity: number) => void;
   onMerge: (sourceItemId: string, targetItemId: string) => void;
+  /** Pre-select this item ID when navigating from the dashboard overdue table. */
+  initialItemId?: string;
+  onClearHighlight?: () => void;
 }
 
-export function ItemLookup({ items, users, history, onSplit, onMerge }: ItemLookupProps) {
+export function ItemLookup({ items, users, history, onSplit, onMerge, initialItemId, onClearHighlight }: ItemLookupProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState<Item | null>(null);
   const [splitQuantity, setSplitQuantity] = useState(1);
+
+  // Auto-select item when navigating from the dashboard
+  useEffect(() => {
+    if (initialItemId) {
+      const found = items.find(i => i.id === initialItemId);
+      if (found) setSelectedItem(found);
+    }
+  }, [initialItemId, items]);
 
   const filteredItems = items.filter(item =>
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -56,7 +67,10 @@ export function ItemLookup({ items, users, history, onSplit, onMerge }: ItemLook
               return (
                 <button
                   key={item.id}
-                  onClick={() => setSelectedItem(item)}
+                  onClick={() => {
+                    setSelectedItem(item);
+                    onClearHighlight?.();
+                  }}
                   className={`w-full text-left p-3 rounded-xl border-2 transition-all ${
                     selectedItem?.id === item.id
                       ? 'border-blue-500 bg-blue-50 shadow-md'

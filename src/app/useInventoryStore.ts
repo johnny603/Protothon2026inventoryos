@@ -15,7 +15,7 @@ import {
   User,
 } from './components/types';
 
-const STORAGE_KEY = 'inventoryos-state-v2';
+const STORAGE_KEY = 'inventoryos-state-v3';
 const DEFAULT_LOAN_DAYS = 3;
 const APPROACHING_DUE_HOURS = 24;
 
@@ -43,6 +43,8 @@ const reviveDates = (state: InventoryState): InventoryState => ({
     ...notification,
     createdAt: new Date(notification.createdAt),
   })),
+  // Carry forward categoryLoanDays or fall back to initial defaults
+  categoryLoanDays: state.categoryLoanDays ?? initialInventoryState.categoryLoanDays,
 });
 
 const loadState = (): InventoryState => {
@@ -180,6 +182,18 @@ export function evaluateOverdueItems(state: InventoryState, now = new Date()): I
   return { ...state, items, checkouts, notifications };
 }
 
+/** Resolve loan duration (days) for a single checkout request. Priority: daysOverride > per-item > per-category > global default. */
+function resolveLoanDays(
+  item: Item,
+  request: CheckoutRequest,
+  categoryLoanDays: Record<string, number>,
+): number {
+  if (request.daysOverride !== undefined && request.daysOverride > 0) return request.daysOverride;
+  if (item.defaultLoanDays !== undefined && item.defaultLoanDays > 0) return item.defaultLoanDays;
+  if (categoryLoanDays[item.category] !== undefined) return categoryLoanDays[item.category];
+  return DEFAULT_LOAN_DAYS;
+}
+
 export function useInventoryStore() {
   const [state, setState] = useState<InventoryState>(() => evaluateOverdueItems(loadState()));
   const [clock, setClock] = useState(new Date());
@@ -225,22 +239,6 @@ export function useInventoryStore() {
       }
 
       const now = new Date();
-      const dueDate = new Date(now.getTime() + DEFAULT_LOAN_DAYS * 24 * 60 * 60 * 1000);
-      const nextItems = current.items.map(item => {
-        const request = requests.find(candidate => candidate.itemId === item.id);
-        if (!request) return item;
-        if (request.quantity < 1 || request.quantity > item.availableQuantity) return item;
-
-        return {
-          ...item,
-          availableQuantity: item.availableQuantity - request.quantity,
-          checkedOutQuantity: item.checkedOutQuantity + request.quantity,
-          currentHolder: userId,
-          checkoutDate: now,
-          dueDate,
-          lastSeenWith: userId,
-        };
-      });
 
       const invalid = requests.find(request => {
         const item = current.items.find(candidate => candidate.id === request.itemId);
@@ -252,25 +250,51 @@ export function useInventoryStore() {
         return current;
       }
 
-      const checkouts: Checkout[] = requests.map(request => ({
-        id: makeId('c'),
-        itemId: request.itemId,
-        userId,
-        quantity: request.quantity,
-        checkoutDate: now,
-        dueDate,
-        status: 'active',
-      }));
+      // Build checkouts with per-request due dates (supports per-item, per-category, custom overrides).
+      const checkouts: Checkout[] = requests.map(request => {
+        const item = current.items.find(candidate => candidate.id === request.itemId)!;
+        const loanDays = resolveLoanDays(item, request, current.categoryLoanDays);
+        const dueDate = new Date(now.getTime() + loanDays * 24 * 60 * 60 * 1000);
+        return {
+          id: makeId('c'),
+          itemId: request.itemId,
+          userId,
+          quantity: request.quantity,
+          checkoutDate: now,
+          dueDate,
+          status: 'active',
+          dueBasis: request.dueBasis ?? (request.daysOverride !== undefined ? 'custom' : 'per-category'),
+        };
+      });
 
-      const history = requests.map(request => createHistory({
-        itemId: request.itemId,
-        userId,
-        action: 'checkout',
-        quantity: request.quantity,
-        notes: `Due ${dueDate.toLocaleDateString()}`,
-      }));
+      const nextItems = current.items.map(item => {
+        const request = requests.find(candidate => candidate.itemId === item.id);
+        if (!request) return item;
+        const checkout = checkouts.find(c => c.itemId === item.id)!;
+        return {
+          ...item,
+          availableQuantity: item.availableQuantity - request.quantity,
+          checkedOutQuantity: item.checkedOutQuantity + request.quantity,
+          currentHolder: userId,
+          checkoutDate: now,
+          dueDate: checkout.dueDate,
+          lastSeenWith: userId,
+        };
+      });
 
-      toast.success(`${requests.length} item ${requests.length === 1 ? 'record' : 'records'} checked out. Due ${dueDate.toLocaleDateString()}.`);
+      const history = checkouts.map(checkout => {
+        const item = current.items.find(candidate => candidate.id === checkout.itemId)!;
+        const loanDays = Math.round((checkout.dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
+        return createHistory({
+          itemId: checkout.itemId,
+          userId,
+          action: 'checkout',
+          quantity: requests.find(r => r.itemId === checkout.itemId)?.quantity,
+          notes: `Due ${checkout.dueDate.toLocaleDateString()} (${loanDays}d, ${checkout.dueBasis ?? 'default'}) — Item ID: ${item.id}`,
+        });
+      });
+
+      toast.success(`${requests.length} item ${requests.length === 1 ? 'record' : 'records'} checked out.`);
 
       return {
         ...current,
@@ -477,6 +501,45 @@ export function useInventoryStore() {
     });
   }, [setAndEvaluate]);
 
+  /** Add a new user. Returns the generated user ID. */
+  const addUser = useCallback((userData: Pick<User, 'name' | 'email'> & { phone?: string; role?: User['role'] }) => {
+    let newId = '';
+    setAndEvaluate(current => {
+      const user: User = {
+        id: makeId('u'),
+        name: userData.name,
+        email: userData.email,
+        phone: userData.phone,
+        role: userData.role ?? 'student',
+        roles: [userData.role ?? 'student'],
+        permissions: ['checkout'],
+        groups: [],
+        active: true,
+        restricted: false,
+        repeatOffender: false,
+      };
+      newId = user.id;
+      toast.success(`User ${user.name} added`);
+      return { ...current, users: [...current.users, user] };
+    });
+    return newId;
+  }, [setAndEvaluate]);
+
+  /** Remove a user by ID. Blocks if they have active checkouts. */
+  const removeUser = useCallback((userId: string) => {
+    setAndEvaluate(current => {
+      const user = current.users.find(candidate => candidate.id === userId);
+      if (!user) return current;
+      const activeLoans = current.checkouts.filter(c => c.userId === userId && c.status !== 'returned');
+      if (activeLoans.length > 0) {
+        toast.error(`${user.name} has ${activeLoans.length} active loan(s). Return all items before removing.`);
+        return current;
+      }
+      toast.success(`User ${user.name} removed`);
+      return { ...current, users: current.users.filter(candidate => candidate.id !== userId) };
+    });
+  }, [setAndEvaluate]);
+
   const markNotificationRead = useCallback((notificationId: string) => {
     setState(current => ({
       ...current,
@@ -514,7 +577,10 @@ export function useInventoryStore() {
     splitItemQuantity,
     mergeItemQuantity,
     addItem,
+    addUser,
+    removeUser,
     markNotificationRead,
     resetDemo,
   };
 }
+
