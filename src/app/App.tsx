@@ -1,100 +1,61 @@
 import { useState } from 'react';
 import { Toaster } from 'sonner';
-import { LayoutDashboard, ScanLine, Undo2, Search, Users, Menu, X, Plus } from 'lucide-react';
+import { Bell, LayoutDashboard, Menu, Plus, RotateCcw, ScanLine, Search, Users, X } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
-import { FastCheckout } from './components/FastCheckout';
-import { FastReturn } from './components/FastReturn';
 import { ItemLookup } from './components/ItemLookup';
 import { UserLookup } from './components/UserLookup';
 import { AddItemFlow } from './components/AddItemFlow';
 import { FloatingActionButton } from './components/FloatingActionButton';
-import { mockItems, mockUsers, mockHistory } from './components/mockData';
-import { Item, ItemCondition } from './components/types';
+import { ScanConsole } from './components/ScanConsole';
+import { NotificationCenter } from './components/NotificationCenter';
+import { useInventoryStore } from './useInventoryStore';
 
-type View = 'dashboard' | 'checkout' | 'return' | 'item-lookup' | 'user-lookup';
+type View = 'dashboard' | 'scan' | 'item-lookup' | 'user-lookup' | 'notifications';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<View>('dashboard');
-  const [items, setItems] = useState<Item[]>(mockItems);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAddItem, setShowAddItem] = useState(false);
 
-  const handleCheckout = (itemIds: string[], userId: string) => {
-    const now = new Date();
-    const dueDate = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-
-    setItems(items.map(item =>
-      itemIds.includes(item.id)
-        ? {
-            ...item,
-            status: 'checked-out' as const,
-            currentHolder: userId,
-            checkoutDate: now,
-            dueDate: dueDate
-          }
-        : item
-    ));
-  };
-
-  const handleReturn = (itemId: string, condition: ItemCondition, notes?: string) => {
-    setItems(items.map(item =>
-      item.id === itemId
-        ? {
-            ...item,
-            status: condition === 'damaged' ? 'damaged' as const : 'available' as const,
-            condition,
-            currentHolder: undefined,
-            checkoutDate: undefined,
-            dueDate: undefined
-          }
-        : item
-    ));
-  };
-
-  const handleAddItem = (itemData: { name: string; category: string; condition: ItemCondition }) => {
-    const newItem: Item = {
-      id: `i${items.length + 1}`,
-      barcode: `EQ${String(Date.now()).slice(-6)}`,
-      name: itemData.name,
-      category: itemData.category,
-      status: 'available',
-      condition: itemData.condition,
-    };
-    setItems([...items, newItem]);
-  };
-
-  const handleQuickScan = () => {
-    if (currentView !== 'checkout') {
-      setCurrentView('checkout');
-    }
-  };
+  const inventory = useInventoryStore();
+  const unreadNotifications = inventory.notifications.filter(notification => !notification.read).length;
 
   const navigation = [
     { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'checkout' as const, label: 'Checkout', icon: ScanLine },
-    { id: 'return' as const, label: 'Return', icon: Undo2 },
+    { id: 'scan' as const, label: 'Scan Console', icon: ScanLine },
     { id: 'item-lookup' as const, label: 'Items', icon: Search },
     { id: 'user-lookup' as const, label: 'Users', icon: Users },
+    { id: 'notifications' as const, label: 'Alerts', icon: Bell, badge: unreadNotifications },
   ];
+
+  const viewCopy = {
+    dashboard: 'Live system health and urgent inventory activity',
+    scan: 'Barcode-first checkout, return, and damage logging',
+    'item-lookup': 'Photo-backed records, quantity tools, and traceable history',
+    'user-lookup': 'Current ownership, risk controls, and user status',
+    notifications: 'Automated email/SMS placeholder nudges and admin alerts',
+  };
+
+  const goToScan = () => setCurrentView('scan');
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Toaster position="top-center" richColors />
-      {showAddItem && <AddItemFlow onClose={() => setShowAddItem(false)} onAdd={handleAddItem} />}
-      <FloatingActionButton onClick={handleQuickScan} />
+      {showAddItem && <AddItemFlow onClose={() => setShowAddItem(false)} onAdd={inventory.addItem} />}
+      <FloatingActionButton onClick={goToScan} />
 
       <header className="bg-white border-b border-gray-100 sticky top-0 z-20 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-blue-700 rounded-xl flex items-center justify-center shadow-md">
+            <button type="button" onClick={() => setCurrentView('dashboard')} className="flex items-center gap-3 text-left">
+              <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-slate-900 rounded-xl flex items-center justify-center shadow-md">
                 <ScanLine className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="font-bold text-lg">Equipment Manager</h1>
-                <p className="text-xs text-gray-600">Fast & efficient tracking</p>
+                <h1 className="font-bold text-lg text-gray-950">InventoryOS</h1>
+                <p className="text-xs text-gray-600">Real-time equipment operations</p>
               </div>
-            </div>
+            </button>
 
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -110,7 +71,7 @@ export default function App() {
                   <button
                     key={item.id}
                     onClick={() => setCurrentView(item.id)}
-                    className={`flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all font-medium ${
+                    className={`relative flex items-center gap-2 px-4 py-2.5 rounded-xl transition-all font-medium ${
                       currentView === item.id
                         ? 'bg-blue-600 text-white shadow-sm'
                         : 'text-gray-700 hover:bg-gray-100'
@@ -118,15 +79,27 @@ export default function App() {
                   >
                     <Icon className="w-4 h-4" />
                     <span>{item.label}</span>
+                    {item.badge ? (
+                      <span className={`ml-1 text-xs rounded-full px-1.5 py-0.5 ${currentView === item.id ? 'bg-white text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                        {item.badge}
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}
               <button
                 onClick={() => setShowAddItem(true)}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green-600 text-white hover:bg-green-700 transition-all font-medium shadow-sm ml-2"
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-green-600 text-white hover:bg-green-700 transition-all font-medium shadow-sm ml-2"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Item</span>
+              </button>
+              <button
+                onClick={inventory.resetDemo}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all font-medium"
+                title="Reset demo data"
+              >
+                <RotateCcw className="w-4 h-4" />
               </button>
             </nav>
           </div>
@@ -151,6 +124,7 @@ export default function App() {
                     >
                       <Icon className="w-5 h-5" />
                       <span className="font-medium">{item.label}</span>
+                      {item.badge ? <span className="ml-auto text-xs bg-red-100 text-red-700 rounded-full px-2 py-0.5">{item.badge}</span> : null}
                     </button>
                   );
                 })}
@@ -171,37 +145,73 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 pb-24">
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900">
-            {navigation.find(n => n.id === currentView)?.label}
-          </h2>
-          <p className="text-gray-600 mt-1">
-            {currentView === 'dashboard' && 'Overview of your equipment inventory'}
-            {currentView === 'checkout' && 'Scan items to check out to users'}
-            {currentView === 'return' && 'Process item returns and log condition'}
-            {currentView === 'item-lookup' && 'Search and view item details'}
-            {currentView === 'user-lookup' && 'View user checkout history'}
-          </p>
+        <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900">
+              {navigation.find(n => n.id === currentView)?.label}
+            </h2>
+            <p className="text-gray-600 mt-1">{viewCopy[currentView]}</p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <span className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700">
+              {inventory.items.reduce((sum, item) => sum + item.availableQuantity, 0)} available
+            </span>
+            <span className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700">
+              {inventory.checkouts.filter(checkout => checkout.status === 'overdue').length} overdue loans
+            </span>
+            <span className="px-3 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-700">
+              {inventory.riskFlags.items.length} risk flags
+            </span>
+          </div>
         </div>
 
         {currentView === 'dashboard' && (
-          <Dashboard items={items} users={mockUsers} />
+          <Dashboard
+            items={inventory.items}
+            users={inventory.users}
+            checkouts={inventory.checkouts}
+            notifications={inventory.notifications}
+            clock={inventory.clock}
+          />
         )}
 
-        {currentView === 'checkout' && (
-          <FastCheckout items={items} users={mockUsers} onCheckout={handleCheckout} />
-        )}
-
-        {currentView === 'return' && (
-          <FastReturn items={items} onReturn={handleReturn} />
+        {currentView === 'scan' && (
+          <ScanConsole
+            items={inventory.items}
+            users={inventory.users}
+            onScan={inventory.scanBarcode}
+            onCheckout={inventory.checkoutItems}
+            onReturn={inventory.returnItems}
+            onDamage={inventory.markDamage}
+          />
         )}
 
         {currentView === 'item-lookup' && (
-          <ItemLookup items={items} users={mockUsers} history={mockHistory} />
+          <ItemLookup
+            items={inventory.items}
+            users={inventory.users}
+            history={inventory.history}
+            onSplit={inventory.splitItemQuantity}
+            onMerge={inventory.mergeItemQuantity}
+          />
         )}
 
         {currentView === 'user-lookup' && (
-          <UserLookup items={items} users={mockUsers} />
+          <UserLookup
+            items={inventory.items}
+            users={inventory.users}
+            checkouts={inventory.checkouts}
+            clock={inventory.clock}
+          />
+        )}
+
+        {currentView === 'notifications' && (
+          <NotificationCenter
+            notifications={inventory.notifications}
+            items={inventory.items}
+            users={inventory.users}
+            onRead={inventory.markNotificationRead}
+          />
         )}
       </main>
     </div>
