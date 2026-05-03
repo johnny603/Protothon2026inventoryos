@@ -1,7 +1,7 @@
 
-  # Protothon 2026 - InventoryOS
+  # InventoryOS
 
-  This is a code bundle for Protothon 2026 - InventoryOS. The original project is available at https://www.figma.com/design/m2SZDVkEbWkTeJTDjBUee5/Protothon-2026---InventoryOS.
+  InventoryOS is a frontend prototype for real-time equipment inventory tracking in schools, gyms, and IT departments. It supports scan-first checkout/return, bulk queues, photo-backed item records, quantity-aware assets, overdue timers, simulated email/SMS alerts, and an admin dashboard.
 
   ## Running the code
 
