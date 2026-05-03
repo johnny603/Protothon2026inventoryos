@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, QrCode, Trash2, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, Plus, QrCode, Trash2, UserCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { User, UserRole } from './types';
 import { QRCodeDisplay } from './QRCodeDisplay';
@@ -22,6 +22,7 @@ const ROLES: UserRole[] = ['student', 'coach', 'equipment-manager'];
 export function UserManagement({ users, onAddUser, onRemoveUser }: UserManagementProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedUserQR, setSelectedUserQR] = useState<User | null>(null);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [scannedId, setScannedId] = useState('');
 
   // Add-user form state
@@ -58,6 +59,15 @@ export function UserManagement({ users, onAddUser, onRemoveUser }: UserManagemen
     }
     setScannedId('');
   };
+
+  const handleConfirmRemove = () => {
+    if (confirmRemoveId) {
+      onRemoveUser(confirmRemoveId);
+      setConfirmRemoveId(null);
+    }
+  };
+
+  const userToRemove = confirmRemoveId ? users.find(u => u.id === confirmRemoveId) : null;
 
   return (
     <div className="space-y-6">
@@ -197,6 +207,38 @@ export function UserManagement({ users, onAddUser, onRemoveUser }: UserManagemen
         </div>
       )}
 
+      {/* Remove confirmation modal */}
+      {confirmRemoveId && userToRemove && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full">
+            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-200">
+              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+              <h3 className="font-semibold text-lg">Remove User</h3>
+            </div>
+            <div className="p-6">
+              <p className="text-gray-700">
+                Remove <span className="font-semibold">{userToRemove.name}</span>? This cannot be undone.
+                Users with active loans cannot be removed.
+              </p>
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setConfirmRemoveId(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-300 font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmRemove}
+                  className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* User list */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {users.map(user => (
@@ -239,11 +281,7 @@ export function UserManagement({ users, onAddUser, onRemoveUser }: UserManagemen
                 Show QR
               </button>
               <button
-                onClick={() => {
-                  if (window.confirm(`Remove ${user.name}? This cannot be undone.`)) {
-                    onRemoveUser(user.id);
-                  }
-                }}
+                onClick={() => setConfirmRemoveId(user.id)}
                 className="px-3 py-2 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
                 title="Remove user"
               >

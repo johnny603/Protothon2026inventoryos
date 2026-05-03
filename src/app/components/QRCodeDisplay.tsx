@@ -24,7 +24,9 @@ export function QRCodeDisplay({ value, size = 180, label = 'QR code' }: QRCodeDi
       width: size,
       margin: 2,
       color: { dark: '#111827', light: '#ffffff' },
-    }).catch(() => {/* ignore render errors in prototype */});
+    }).catch(err => {
+      console.warn('[QRCodeDisplay] Failed to render QR code:', err);
+    });
   }, [value, size]);
 
   return (

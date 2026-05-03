@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { BarcodeScanner } from './BarcodeScanner';
 import { CheckoutRequest, DamageLevel, DueBasis, Item, ItemCondition, User } from './types';
 import { StatusBadge } from './StatusBadge';
+import { DEFAULT_LOAN_DAYS } from '../useInventoryStore';
 
 interface ScanConsoleProps {
   items: Item[];
@@ -47,14 +48,14 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
 
   /** Estimated due date label shown in the Checkout Recipient panel. */
   const estimatedDueDate = useMemo(() => {
-    let days = 3;
+    let days = DEFAULT_LOAN_DAYS;
     if (dueBasis === 'custom') {
       days = customDays;
     } else if (dueBasis === 'per-category' && queue.length > 0) {
       const first = queue[0].item;
-      days = categoryLoanDays[first.category] ?? 3;
+      days = categoryLoanDays[first.category] ?? DEFAULT_LOAN_DAYS;
     } else if (dueBasis === 'per-item' && queue.length > 0) {
-      days = queue[0].item.defaultLoanDays ?? categoryLoanDays[queue[0].item.category] ?? 3;
+      days = queue[0].item.defaultLoanDays ?? categoryLoanDays[queue[0].item.category] ?? DEFAULT_LOAN_DAYS;
     }
     const dueDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     return dueDate.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
@@ -253,7 +254,7 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
               {dueBasis === 'per-category' && queue.length > 0 && (
                 <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
                   {queue.map(entry => {
-                    const days = categoryLoanDays[entry.item.category] ?? 3;
+                    const days = categoryLoanDays[entry.item.category] ?? DEFAULT_LOAN_DAYS;
                     return (
                       <div key={entry.item.id} className="flex justify-between">
                         <span className="truncate">{entry.item.name}</span>
@@ -267,7 +268,7 @@ export function ScanConsole({ items, users, onScan, onCheckout, onReturn, onDama
               {dueBasis === 'per-item' && queue.length > 0 && (
                 <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
                   {queue.map(entry => {
-                    const days = entry.item.defaultLoanDays ?? categoryLoanDays[entry.item.category] ?? 3;
+                    const days = entry.item.defaultLoanDays ?? categoryLoanDays[entry.item.category] ?? DEFAULT_LOAN_DAYS;
                     return (
                       <div key={entry.item.id} className="flex justify-between">
                         <span className="truncate">{entry.item.name}</span>

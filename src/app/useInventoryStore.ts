@@ -16,7 +16,7 @@ import {
 } from './components/types';
 
 const STORAGE_KEY = 'inventoryos-state-v3';
-const DEFAULT_LOAN_DAYS = 3;
+export const DEFAULT_LOAN_DAYS = 3;
 const APPROACHING_DUE_HOURS = 24;
 
 const makeId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -43,7 +43,7 @@ const reviveDates = (state: InventoryState): InventoryState => ({
     ...notification,
     createdAt: new Date(notification.createdAt),
   })),
-  // Carry forward categoryLoanDays or fall back to initial defaults
+    // Carry forward categoryLoanDays or fall back to initialInventoryState.categoryLoanDays
   categoryLoanDays: state.categoryLoanDays ?? initialInventoryState.categoryLoanDays,
 });
 
@@ -289,7 +289,7 @@ export function useInventoryStore() {
           itemId: checkout.itemId,
           userId,
           action: 'checkout',
-          quantity: requests.find(r => r.itemId === checkout.itemId)?.quantity,
+          quantity: checkout.quantity,
           notes: `Due ${checkout.dueDate.toLocaleDateString()} (${loanDays}d, ${checkout.dueBasis ?? 'default'}) — Item ID: ${item.id}`,
         });
       });
